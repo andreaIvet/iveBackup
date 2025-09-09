@@ -1,15 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
-using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 using System.IO;
 using System.IO.Compression;
-using System.Diagnostics;
 using System.Xml;
+using System.Xml.Schema;
 
 namespace IveBackUp
 {
@@ -38,11 +33,11 @@ namespace IveBackUp
                 e.SetAttribute("escludi",value);
             }
         }
-        public bkTreeNode(string path,string esc,XmlDocument doc,ListBox lb) : base(path.Substring(path.LastIndexOf('\\')+ 1))
+        public bkTreeNode(string path,string esc,XmlDocument doc,ListBox lb) : base(path.Substring(path.LastIndexOf('/')+ 1))
         {
             Checked = false;
             foreach(XmlElement le in doc.DocumentElement.ChildNodes){
-                if(le.GetAttribute("path") == path.ToLower())
+                if(le.GetAttribute("path").ToLower() == path.ToLower())
                 {
                     Checked = true;
                     Tag = le;
@@ -52,10 +47,12 @@ namespace IveBackUp
 
             if(!Checked){
                 XmlElement e = doc.CreateElement("bkTreeNode");
-                e.SetAttributeNode(doc.CreateAttribute("path")).Value = path.ToLower();
+                //e.SetAttributeNode(doc.CreateAttribute("path")).Value = path.ToLower();
+                e.SetAttributeNode(doc.CreateAttribute("path")).Value = path;
                 e.SetAttributeNode(doc.CreateAttribute("escludi")).Value = esc;
                 Tag = e;
-                string[] sdir = Directory.GetDirectories(path.ToLower());
+                //string[] sdir = Directory.GetDirectories(path.ToLower());
+                string[] sdir = Directory.GetDirectories(path);
                 foreach (string d in sdir)
                 {
                     DirectoryInfo di = new DirectoryInfo(d);
@@ -67,6 +64,8 @@ namespace IveBackUp
             }
         }
     }
+
+
     public partial class Form1 : Form
     {
         XmlDocument doc =new XmlDocument();
@@ -88,7 +87,7 @@ namespace IveBackUp
                 doc.DocumentElement.SetAttribute("root",Environment.CurrentDirectory);
                 doc.DocumentElement.SetAttribute("bkdir","c:\\bk");
                 doc.DocumentElement.SetAttribute("def_no_ext","zip|rar|pdf");
-                txtoutdir.Text = "c:\\bk";
+                txtoutdir.Text = ".\\";
                 trBackUp.Nodes.Add(new bkTreeNode(Environment.CurrentDirectory,"zip|rar|pdf",doc,lbldir)); 
             }
                                 
@@ -148,8 +147,13 @@ namespace IveBackUp
                 if(!escludi){
                     FileInfo fi =new FileInfo(f);
                     string zzf = zipdir+fi.Name;
-                    Console.WriteLine(zzf);
-                    zz.CreateEntryFromFile(f,zzf);
+                    Console.WriteLine(f+"->"+zzf);
+                    FileStream fsi = new FileStream(f, FileMode.Open);
+                    ZipArchiveEntry ze =  zz.CreateEntry(zzf);
+                    Stream cs = ze.Open();
+                    fsi.CopyTo(cs);
+                    cs.Close();
+                    fsi.Close();
                 }
                 pbar.Value++;
                 Application.DoEvents();
@@ -167,14 +171,16 @@ namespace IveBackUp
             
             foreach (bkTreeNode gg in lbldir.Items)
             {
-                String[] Filtri = gg.estensioni.Split("|");                    
+                String[] Filtri = gg.estensioni.Split('|');                    
                 String g = gg.PATH;
-                String[] fname = g.Split('\\');                       
+                String[] fname = g.Split('/');                       
                 string sss = DateTime.Today.Day + "_" + DateTime.Today.Month + "_" + DateTime.Today.Year;
-                string fn = outdir + "\\" + fname[fname.Length - 1].Replace(' ', '_') + sss + ".zip";
-                ZipArchive zz =ZipFile.Open(fn,ZipArchiveMode.Create);
-                CreateFileListZip(g,"",zz,Filtri);
+                string fn = outdir + "/" + fname[fname.Length - 1].Replace(' ', '_') + sss + ".zip";
+                FileStream fsz = new FileStream(fn, FileMode.Create);
+                ZipArchive zz=new ZipArchive(fsz,ZipArchiveMode.Create);
+                CreateFileListZip(g, "", zz, Filtri);
                 zz.Dispose();
+                fsz.Close();
             }
         }
 
@@ -264,7 +270,8 @@ namespace IveBackUp
                     if ((DateTime.Today - fi.LastWriteTime).Days < giorni)
                     {
                         XmlElement e = doc.CreateElement("bkTreeNode");
-                        e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir.ToLower();
+                        //e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir.ToLower();
+                        e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir;
                         e.SetAttributeNode(doc.CreateAttribute("escludi")).Value = doc.DocumentElement.GetAttribute("def_no_ext");
                         doc.DocumentElement.AppendChild(e);
                         find = true;
