@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Xml;
 using System.Xml.Schema;
+using System.Xml.Serialization;
 
 namespace IveBackUp
 {
@@ -12,8 +13,8 @@ namespace IveBackUp
 
         public override string ToString()
         {
-            XmlElement e = (XmlElement)Tag;  
-            return e.GetAttribute("path") +" escludi {"+ e.GetAttribute("escludi")+"}";
+            XmlElement e = (XmlElement)Tag;
+            return e.GetAttribute("path") + " escludi {" + e.GetAttribute("escludi") + "} no dir={" + e.GetAttribute("nodir") + "}";
         }
 
         public string PATH{
@@ -33,11 +34,27 @@ namespace IveBackUp
                 e.SetAttribute("escludi",value);
             }
         }
-        public bkTreeNode(string path,string esc,XmlDocument doc,ListBox lb) : base(path.Substring(path.LastIndexOf('/')+ 1))
+
+        public string EsclusioniSubdir
+        {
+            get
+            {
+                XmlElement e = (XmlElement)Tag;
+                return e.GetAttribute("nodir");
+            }
+            set
+            {
+                XmlElement e = (XmlElement)Tag;
+                e.SetAttribute("nodir", value);
+            }
+        }
+
+
+        public bkTreeNode(string path,XmlDocument doc,ListBox lb) : base(path.Substring(path.LastIndexOf('\\')+ 1))
         {
             Checked = false;
             foreach(XmlElement le in doc.DocumentElement.ChildNodes){
-                if(le.GetAttribute("path").ToLower() == path.ToLower())
+                if(le.GetAttribute("path") == path.ToLower())
                 {
                     Checked = true;
                     Tag = le;
@@ -47,18 +64,17 @@ namespace IveBackUp
 
             if(!Checked){
                 XmlElement e = doc.CreateElement("bkTreeNode");
-                //e.SetAttributeNode(doc.CreateAttribute("path")).Value = path.ToLower();
-                e.SetAttributeNode(doc.CreateAttribute("path")).Value = path;
-                e.SetAttributeNode(doc.CreateAttribute("escludi")).Value = esc;
+                e.SetAttributeNode(doc.CreateAttribute("path")).Value = path.ToLower();
+                e.SetAttributeNode(doc.CreateAttribute("escludi")).Value = doc.DocumentElement.GetAttribute("def_no_ext");
+                e.SetAttributeNode(doc.CreateAttribute("nodir")).Value = doc.DocumentElement.GetAttribute("def_no_dir");
                 Tag = e;
-                //string[] sdir = Directory.GetDirectories(path.ToLower());
-                string[] sdir = Directory.GetDirectories(path);
+                string[] sdir = Directory.GetDirectories(path.ToLower());
                 foreach (string d in sdir)
                 {
                     DirectoryInfo di = new DirectoryInfo(d);
                     if ((di.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == (FileAttributes)0)
                     {
-                        Nodes.Add(new bkTreeNode(d,esc,doc,lb));
+                        Nodes.Add(new bkTreeNode(d, doc,lb));
                     }
                 }
             }
@@ -80,15 +96,16 @@ namespace IveBackUp
             if(File.Exists("ListaDir.xml")){
                 doc.Load("ListaDir.xml");
                 txtoutdir.Text = doc.DocumentElement.GetAttribute("bkdir");
-                trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc.DocumentElement.GetAttribute("def_no_ext"),doc,lbldir));                
+                trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc,lbldir));                
             }
             else {
                 doc.AppendChild(doc.CreateElement("iveBk"));
                 doc.DocumentElement.SetAttribute("root",Environment.CurrentDirectory);
                 doc.DocumentElement.SetAttribute("bkdir","c:\\bk");
                 doc.DocumentElement.SetAttribute("def_no_ext","zip|rar|pdf");
-                txtoutdir.Text = ".\\";
-                trBackUp.Nodes.Add(new bkTreeNode(Environment.CurrentDirectory,"zip|rar|pdf",doc,lbldir)); 
+                doc.DocumentElement.SetAttribute("def_no_dir", "bin,obj");
+                txtoutdir.Text = "c:\\bk";
+                trBackUp.Nodes.Add(new bkTreeNode(Environment.CurrentDirectory,doc,lbldir)); 
             }
                                 
         }
@@ -104,7 +121,7 @@ namespace IveBackUp
                     DirectoryInfo di = new DirectoryInfo(d);
                     if ((di.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == (FileAttributes)0)
                     {
-                        t.Nodes.Add(new bkTreeNode(d,doc.DocumentElement.GetAttribute("def_no_ext"),doc,lbldir));
+                        t.Nodes.Add(new bkTreeNode(d,doc,lbldir));
                     }
                 }
                 doc.DocumentElement.RemoveChild(ee);
@@ -123,7 +140,7 @@ namespace IveBackUp
             doc.Save("ListaDir.xml");
         }
 
-        private void CreateFileListZip(string dir,string zipdir,ZipArchive zz,string[] Filtri)
+        private void CreateFileListZip(string dir,string zipdir,ZipArchive zz,string[] Filtri, string[] nodir)
         {
             if (dir.Length > 247) return;
             string[] files = Directory.GetFiles(dir);
@@ -152,6 +169,7 @@ namespace IveBackUp
                     ZipArchiveEntry ze =  zz.CreateEntry(zzf);
                     Stream cs = ze.Open();
                     fsi.CopyTo(cs);
+                    cs.Flush();
                     cs.Close();
                     fsi.Close();
                 }
@@ -162,7 +180,19 @@ namespace IveBackUp
             foreach (string d in sdir)
             {
                 DirectoryInfo di = new DirectoryInfo(d);
-                CreateFileListZip(d,zipdir+di.Name+"\\", zz, Filtri);
+                bool escludi = false;
+                foreach (String dd in nodir)
+                {
+                    if (dd.ToLower() == di.Name.ToLower())
+                    {
+                        escludi = true;
+                        break;
+                    }
+                }
+                if (!escludi)
+                {
+                    CreateFileListZip(d, zipdir + di.Name + "\\", zz, Filtri, nodir);
+                }
             }           
         }
 
@@ -173,12 +203,12 @@ namespace IveBackUp
             {
                 String[] Filtri = gg.estensioni.Split('|');                    
                 String g = gg.PATH;
-                String[] fname = g.Split('/');                       
+                String[] fname = g.Split('\\');
                 string sss = DateTime.Today.Day + "_" + DateTime.Today.Month + "_" + DateTime.Today.Year;
-                string fn = outdir + "/" + fname[fname.Length - 1].Replace(' ', '_') + sss + ".zip";
+                string fn = outdir + "\\" + fname[fname.Length - 1].Replace(' ', '_') + sss + ".zip";
                 FileStream fsz = new FileStream(fn, FileMode.Create);
                 ZipArchive zz=new ZipArchive(fsz,ZipArchiveMode.Create);
-                CreateFileListZip(g, "", zz, Filtri);
+                CreateFileListZip(g, "", zz, Filtri,gg.EsclusioniSubdir.Split(','));
                 zz.Dispose();
                 fsz.Close();
             }
@@ -197,7 +227,7 @@ namespace IveBackUp
                 trBackUp.Nodes.Clear();
                 lbldir.Items.Clear();
                 doc.DocumentElement.SetAttribute("root",fl.SelectedPath);
-                trBackUp.Nodes.Add(new bkTreeNode(fl.SelectedPath,doc.DocumentElement.GetAttribute("def_no_ext"),doc,lbldir));
+                trBackUp.Nodes.Add(new bkTreeNode(fl.SelectedPath,doc,lbldir));
             }
         }
 
@@ -239,7 +269,7 @@ namespace IveBackUp
                 doc.Load(of.FileName);
                 trBackUp.Nodes.Clear();
                 lbldir.Items.Clear();
-                trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc.DocumentElement.GetAttribute("def_no_ext"),doc,lbldir));                           
+                trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc,lbldir));                           
             }
         }
 
@@ -270,9 +300,9 @@ namespace IveBackUp
                     if ((DateTime.Today - fi.LastWriteTime).Days < giorni)
                     {
                         XmlElement e = doc.CreateElement("bkTreeNode");
-                        //e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir.ToLower();
-                        e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir;
+                        e.SetAttributeNode(doc.CreateAttribute("path")).Value = dir.ToLower();
                         e.SetAttributeNode(doc.CreateAttribute("escludi")).Value = doc.DocumentElement.GetAttribute("def_no_ext");
+                        e.SetAttributeNode(doc.CreateAttribute("nodir")).Value = doc.DocumentElement.GetAttribute("def_no_dir");
                         doc.DocumentElement.AppendChild(e);
                         find = true;
                         break;
@@ -296,7 +326,7 @@ namespace IveBackUp
             lbldir.Items.Clear();
             while(doc.DocumentElement.ChildNodes.Count>0)doc.DocumentElement.RemoveChild(doc.DocumentElement.FirstChild);
             CercaDir(doc.DocumentElement.GetAttribute("root"), (int)numGiorni.Value,txtEst.Text.ToUpper());
-            trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc.DocumentElement.GetAttribute("def_no_ext"),doc,lbldir));
+            trBackUp.Nodes.Add(new bkTreeNode(doc.DocumentElement.GetAttribute("root"),doc,lbldir));
         }
 
 
